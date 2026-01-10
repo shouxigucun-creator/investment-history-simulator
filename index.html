@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>投資の歴史体験シミュレーター（1925–2025）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1976d2">
+<style>
+  body { font-family: sans-serif; background:#f5f5f5; padding:16px; }
+  h1 { font-size:20px; }
+  label { display:block; margin-top:10px; }
+  select, input, button { width:100%; padding:8px; margin-top:4px; }
+  canvas { width:100%; margin-top:10px; }
+  #resultCard { background:#fff; padding:16px; border-radius:8px; margin-top:16px; }
+  ul { padding-left:18px; }
+  button { margin-top:12px; }
+</style>
+</head>
+<body>
+
+<h1>📘 投資の歴史体験シミュレーター</h1>
+<p style="font-size:14px;color:#555">
+1925年〜2025年の過去データを用いて、暴落と回復を体験的に学ぶ教育用シミュレーターです。
+</p>
+
+<label>開始年</label>
+<input id="startYear" type="number" value="1980">
+
+<label>終了年</label>
+<input id="endYear" type="number" value="2025">
+
+<label>表示モード</label>
+<select id="mode">
+  <option value="compare">米国株 vs 日本株</option>
+  <option value="single">単一銘柄</option>
+</select>
+
+<label id="assetLabel" style="display:none">投資対象</label>
+<select id="asset" style="display:none">
+  <option value="sp500">米国株（S&P500）</option>
+  <option value="nikkei">日本株（日経平均）</option>
+  <option value="cash">現金（0%）</option>
+</select>
+
+<button onclick="run()">▶ シミュレーション実行</button>
+<button onclick="saveResultImage()">📸 結果を画像で保存</button>
+
+<div id="resultCard">
+  <h2>結果</h2>
+  <div id="output"></div>
+  <canvas id="chart"></canvas>
+  <div id="crashInfo"></div>
+  <div id="learningPoints"></div>
+  <p style="font-size:11px;color:#666">
+    本アプリは学習目的のシミュレーションであり、将来の投資成果を保証するものではありません。
+  </p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+
+const INITIAL_ASSET = 1000000;
+const returns = {};
+for (let y = 1925; y <= 2025; y++) returns[y] = { sp500:0.07, nikkei:0.04 };
+Object.assign(returns[1929], { sp500:-0.5, nikkei:-0.4 });
+Object.assign(returns[1973], { sp500:-0.3, nikkei:-0.4 });
+Object.assign(returns[1987], { sp500:-0.2, nikkei:-0.15 });
+Object.assign(returns[2000], { sp500:-0.3, nikkei:-0.35 });
+Object.assign(returns[2008], { sp500:-0.4, nikkei:-0.45 });
+Object.assign(returns[2020], { sp500:-0.25, nikkei:-0.3 });
+
+const crashEvents = {
+  1929:{title:"世界恐慌",detail:"米国株約90%下落。"},
+  1973:{title:"オイルショック",detail:"インフレと不況。"},
+  1987:{title:"ブラックマンデー",detail:"1日で-22%。"},
+  2000:{title:"ITバブル崩壊",detail:"NASDAQ約80%下落。"},
+  2008:{title:"リーマンショック",detail:"世界金融危機。"},
+  2020:{title:"コロナショック",detail:"史上最速の回復。"},
+};
+
+function run(){
+  const s=+startYear.value,e=+endYear.value,m=mode.value;
+  let labels=[],a=[],b=[],va=INITIAL_ASSET,vb=INITIAL_ASSET;
+  for(let y=s;y<=e;y++){
+    labels.push(y);
+    if(m==="compare"){
+      va*=1+returns[y].sp500; vb*=1+returns[y].nikkei;
+      a.push(va); b.push(vb);
+    } else {
+      let r=asset.value==="cash"?0:returns[y][asset.value];
+      va*=1+r; a.push(va);
+    }
+  }
+  output.innerHTML=m==="compare"
+    ? `<b>米国株：</b>${Math.round(a.at(-1)).toLocaleString()}円<br>
+       <b>日本株：</b>${Math.round(b.at(-1)).toLocaleString()}円`
+    : `<b>最終資産：</b>${Math.round(a.at(-1)).toLocaleString()}円`;
+  draw(labels,a,b,m); renderCrashInfo(s,e); renderLearningPoints(a,b,s,e,m);
+}
+
+function draw(labels,a,b,m){
+  const c=chart,ctx=c.getContext("2d"); c.height=300;
+  const p=40; ctx.clearRect(0,0,c.width,c.height);
+  const all=m==="compare"?[...a,...b]:a, max=Math.max(...all), min=Math.min(...all);
+  function line(d,color){
+    ctx.beginPath();
+    d.forEach((v,i)=>{
+      const x=p+i/(d.length-1)*(c.width-p*2);
+      const y=c.height-p-(v-min)/(max-min)*(c.height-p*2);
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    });
+    ctx.strokeStyle=color; ctx.stroke();
+  }
+  line(a,"blue"); if(m==="compare") line(b,"green");
+  labels.forEach((y,i)=>{
+    if(!crashEvents[y])return;
+    const x=p+i/(labels.length-1)*(c.width-p*2);
+    ctx.beginPath(); ctx.moveTo(x,p); ctx.lineTo(x,c.height-p);
+    ctx.strokeStyle="rgba(255,0,0,.3)"; ctx.stroke();
+  });
+}
+
+function renderCrashInfo(s,e){
+  let h="<h3>📉 投資期間中の暴落</h3>",i=1;
+  for(const y in crashEvents)
+    if(y>=s&&y<=e) h+=`<p><b>${i++}. ${y}年 ${crashEvents[y].title}</b><br>${crashEvents[y].detail}</p>`;
+  crashInfo.innerHTML=i===1?"<p>大きな暴落はありません。</p>":h;
+}
+
+function renderLearningPoints(a,b,s,e,m){
+  let p=[];
+  if(e-s>=20)p.push("長期では暴落の影響は小さくなります。");
+  if(m==="compare"&&a.at(-1)>b.at(-1))p.push("米国株は回復が早い傾向があります。");
+  p.push("過去は未来を保証しません。");
+  learningPoints.innerHTML="<h3>📘 学び</h3><ul>"+p.map(x=>`<li>${x}</li>`).join("")+"</ul>";
+}
+
+function saveResultImage(){
+  html2canvas(resultCard,{scale:2}).then(c=>{
+    const a=document.createElement("a");
+    a.href=c.toDataURL("image/png");
+    a.download="investment_simulation.png";
+    a.click();
+  });
+}
+
+mode.onchange=()=>{
+  asset.style.display=assetLabel.style.display=mode.value==="single"?"block":"none";
+};
+</script>
+</body>
+</html>
