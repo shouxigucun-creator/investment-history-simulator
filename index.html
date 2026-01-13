@@ -2,155 +2,161 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>投資の歴史体験シミュレーター（1925–2025）</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1976d2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>住宅ローンシミュレーター</title>
 <style>
-  body { font-family: sans-serif; background:#f5f5f5; padding:16px; }
-  h1 { font-size:20px; }
-  label { display:block; margin-top:10px; }
-  select, input, button { width:100%; padding:8px; margin-top:4px; }
-  canvas { width:100%; margin-top:10px; }
-  #resultCard { background:#fff; padding:16px; border-radius:8px; margin-top:16px; }
-  ul { padding-left:18px; }
-  button { margin-top:12px; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: auto; padding: 20px; }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 10px; }
+    input, select { padding: 5px; width: 100%; max-width: 200px; margin-top: 5px; }
+    .section { border: 1px solid #ccc; padding: 15px; margin-top: 15px; border-radius: 5px; }
+    #result { margin-top: 20px; padding: 15px; border: 2px solid #007bff; border-radius: 5px; background-color: #f0f8ff; }
+    canvas { margin-top: 20px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-<h1>📘 投資の歴史体験シミュレーター</h1>
-<p style="font-size:14px;color:#555">
-1925年〜2025年の過去データを用いて、暴落と回復を体験的に学ぶ教育用シミュレーターです。
-</p>
+<h1>住宅ローンシミュレーター</h1>
 
-<label>開始年</label>
-<input id="startYear" type="number" value="1980">
+<div class="section">
+    <label>物件タイプ：
+        <select id="propertyType">
+            <option value="house">一戸建て</option>
+            <option value="mansion">マンション</option>
+        </select>
+    </label>
 
-<label>終了年</label>
-<input id="endYear" type="number" value="2025">
+    <label>物件価格（万円）：
+        <input type="number" id="price" value="4000" min="2000" max="15000">
+    </label>
 
-<label>表示モード</label>
-<select id="mode">
-  <option value="compare">米国株 vs 日本株</option>
-  <option value="single">単一銘柄</option>
-</select>
+    <label>頭金（万円）：
+        <input type="number" id="downPayment" value="0" min="0">
+    </label>
 
-<label id="assetLabel" style="display:none">投資対象</label>
-<select id="asset" style="display:none">
-  <option value="sp500">米国株（S&P500）</option>
-  <option value="nikkei">日本株（日経平均）</option>
-  <option value="cash">現金（0%）</option>
-</select>
+    <label>ローン年数：
+        <select id="years">
+            <option value="35">35年</option>
+            <option value="40">40年</option>
+            <option value="50">50年</option>
+        </select>
+    </label>
 
-<button onclick="run()">▶ シミュレーション実行</button>
-<button onclick="saveResultImage()">📸 結果を画像で保存</button>
+    <label>金利タイプ：
+        <select id="interestType">
+            <option value="fixed">固定金利</option>
+            <option value="variable">変動金利</option>
+        </select>
+    </label>
 
-<div id="resultCard">
-  <h2>結果</h2>
-  <div id="output"></div>
-  <canvas id="chart"></canvas>
-  <div id="crashInfo"></div>
-  <div id="learningPoints"></div>
-  <p style="font-size:11px;color:#666">
-    本アプリは学習目的のシミュレーションであり、将来の投資成果を保証するものではありません。
-  </p>
+    <label>金利（%）：
+        <input type="number" id="interestRate" value="1.5" step="0.01" min="0.1" max="5">
+    </label>
+
+    <div id="houseFields" style="display:block;">
+        <label>固定資産税（年額万円）：
+            <input type="number" id="propertyTax" value="12">
+        </label>
+        <label>火災保険（年額万円）：
+            <input type="number" id="fireInsurance" value="5">
+        </label>
+    </div>
+
+    <div id="mansionFields" style="display:none;">
+        <label>修繕積立金（月額万円）：
+            <input type="number" id="repairFee" value="2">
+        </label>
+        <label>管理費（月額万円）：
+            <input type="number" id="managementFee" value="1.5">
+        </label>
+    </div>
+
+    <button onclick="calculateLoan()" style="margin-top:15px;padding:10px 20px;">計算する</button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<div id="result"></div>
+<canvas id="comparisonChart" height="400"></canvas>
+
 <script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js");
-}
+let comparisonChart;
 
-const INITIAL_ASSET = 1000000;
-const returns = {};
-for (let y = 1925; y <= 2025; y++) returns[y] = { sp500:0.07, nikkei:0.04 };
-Object.assign(returns[1929], { sp500:-0.5, nikkei:-0.4 });
-Object.assign(returns[1973], { sp500:-0.3, nikkei:-0.4 });
-Object.assign(returns[1987], { sp500:-0.2, nikkei:-0.15 });
-Object.assign(returns[2000], { sp500:-0.3, nikkei:-0.35 });
-Object.assign(returns[2008], { sp500:-0.4, nikkei:-0.45 });
-Object.assign(returns[2020], { sp500:-0.25, nikkei:-0.3 });
+function calculateLoan() {
+    const propertyType = document.getElementById('propertyType').value;
+    const price = Number(document.getElementById('price').value) * 10000;
+    const downPayment = Number(document.getElementById('downPayment').value) * 10000;
+    const loanAmount = price - downPayment;
 
-const crashEvents = {
-  1929:{title:"世界恐慌",detail:"米国株約90%下落。"},
-  1973:{title:"オイルショック",detail:"インフレと不況。"},
-  1987:{title:"ブラックマンデー",detail:"1日で-22%。"},
-  2000:{title:"ITバブル崩壊",detail:"NASDAQ約80%下落。"},
-  2008:{title:"リーマンショック",detail:"世界金融危機。"},
-  2020:{title:"コロナショック",detail:"史上最速の回復。"},
-};
+    const years = Number(document.getElementById('years').value);
+    const interestRate = Number(document.getElementById('interestRate').value) / 100;
+    const months = years * 12;
+    const monthlyRate = interestRate / 12;
 
-function run(){
-  const s=+startYear.value,e=+endYear.value,m=mode.value;
-  let labels=[],a=[],b=[],va=INITIAL_ASSET,vb=INITIAL_ASSET;
-  for(let y=s;y<=e;y++){
-    labels.push(y);
-    if(m==="compare"){
-      va*=1+returns[y].sp500; vb*=1+returns[y].nikkei;
-      a.push(va); b.push(vb);
-    } else {
-      let r=asset.value==="cash"?0:returns[y][asset.value];
-      va*=1+r; a.push(va);
+    let otherMonthly = 0;
+    if(propertyType==='house'){
+        const tax = Number(document.getElementById('propertyTax').value) * 10000;
+        const insurance = Number(document.getElementById('fireInsurance').value) * 10000;
+        otherMonthly = (tax + insurance)/12;
+    }else{
+        const repair = Number(document.getElementById('repairFee').value)*10000;
+        const management = Number(document.getElementById('managementFee').value)*10000;
+        otherMonthly = repair + management;
     }
-  }
-  output.innerHTML=m==="compare"
-    ? `<b>米国株：</b>${Math.round(a.at(-1)).toLocaleString()}円<br>
-       <b>日本株：</b>${Math.round(b.at(-1)).toLocaleString()}円`
-    : `<b>最終資産：</b>${Math.round(a.at(-1)).toLocaleString()}円`;
-  draw(labels,a,b,m); renderCrashInfo(s,e); renderLearningPoints(a,b,s,e,m);
-}
 
-function draw(labels,a,b,m){
-  const c=chart,ctx=c.getContext("2d"); c.height=300;
-  const p=40; ctx.clearRect(0,0,c.width,c.height);
-  const all=m==="compare"?[...a,...b]:a, max=Math.max(...all), min=Math.min(...all);
-  function line(d,color){
-    ctx.beginPath();
-    d.forEach((v,i)=>{
-      const x=p+i/(d.length-1)*(c.width-p*2);
-      const y=c.height-p-(v-min)/(max-min)*(c.height-p*2);
-      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    // 元利均等返済
+    const M = loanAmount*(monthlyRate*Math.pow(1+monthlyRate,months))/(Math.pow(1+monthlyRate,months)-1);
+    const totalMonthly = M + otherMonthly;
+
+    document.getElementById('result').innerHTML = `
+        <h2>計算結果</h2>
+        <p>ローン借入額：${loanAmount.toLocaleString()}円</p>
+        <p>家本体ローン返済額：${M.toLocaleString()}円</p>
+        <p>その他費用：${otherMonthly.toLocaleString()}円</p>
+        <p><strong>毎月の合計支払額：${totalMonthly.toLocaleString()}円</strong></p>
+        <p>総支払額（ローン＋その他費用）：${(totalMonthly*months).toLocaleString()}円</p>
+    `;
+
+    // グラフデータ作成（家本体 vs 家本体＋その他費用）
+    const labels = [];
+    const loanOnlyData = [];
+    const totalData = [];
+    for(let i=1;i<=months;i++){
+        labels.push(i);
+        loanOnlyData.push(M);
+        totalData.push(M + otherMonthly);
+    }
+
+    const ctx = document.getElementById('comparisonChart').getContext('2d');
+    if(comparisonChart) comparisonChart.destroy();
+    comparisonChart = new Chart(ctx,{
+        type:'line',
+        data:{
+            labels:labels,
+            datasets:[
+                {label:'家本体ローン返済額', data:loanOnlyData, borderColor:'blue', fill:false},
+                {label:'家本体＋固定資産税等の支払額', data:totalData, borderColor:'orange', fill:false}
+            ]
+        },
+        options:{
+            responsive:true,
+            plugins:{title:{display:true,text:'家本体と実際の月々支払額比較'}, tooltip:{mode:'index', intersect:false}},
+            interaction:{mode:'index', intersect:false},
+            scales:{y:{title:{display:true,text:'円'}}, x:{title:{display:true,text:'月'}}}
+        }
     });
-    ctx.strokeStyle=color; ctx.stroke();
-  }
-  line(a,"blue"); if(m==="compare") line(b,"green");
-  labels.forEach((y,i)=>{
-    if(!crashEvents[y])return;
-    const x=p+i/(labels.length-1)*(c.width-p*2);
-    ctx.beginPath(); ctx.moveTo(x,p); ctx.lineTo(x,c.height-p);
-    ctx.strokeStyle="rgba(255,0,0,.3)"; ctx.stroke();
-  });
 }
 
-function renderCrashInfo(s,e){
-  let h="<h3>📉 投資期間中の暴落</h3>",i=1;
-  for(const y in crashEvents)
-    if(y>=s&&y<=e) h+=`<p><b>${i++}. ${y}年 ${crashEvents[y].title}</b><br>${crashEvents[y].detail}</p>`;
-  crashInfo.innerHTML=i===1?"<p>大きな暴落はありません。</p>":h;
-}
-
-function renderLearningPoints(a,b,s,e,m){
-  let p=[];
-  if(e-s>=20)p.push("長期では暴落の影響は小さくなります。");
-  if(m==="compare"&&a.at(-1)>b.at(-1))p.push("米国株は回復が早い傾向があります。");
-  p.push("過去は未来を保証しません。");
-  learningPoints.innerHTML="<h3>📘 学び</h3><ul>"+p.map(x=>`<li>${x}</li>`).join("")+"</ul>";
-}
-
-function saveResultImage(){
-  html2canvas(resultCard,{scale:2}).then(c=>{
-    const a=document.createElement("a");
-    a.href=c.toDataURL("image/png");
-    a.download="investment_simulation.png";
-    a.click();
-  });
-}
-
-mode.onchange=()=>{
-  asset.style.display=assetLabel.style.display=mode.value==="single"?"block":"none";
-};
+// 物件タイプ切替
+document.getElementById('propertyType').addEventListener('change',function(){
+    if(this.value==='house'){
+        document.getElementById('houseFields').style.display='block';
+        document.getElementById('mansionFields').style.display='none';
+    } else{
+        document.getElementById('houseFields').style.display='none';
+        document.getElementById('mansionFields').style.display='block';
+    }
+});
 </script>
+
 </body>
 </html>
